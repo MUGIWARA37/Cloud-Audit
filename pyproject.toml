@@ -1,0 +1,22 @@
+[project]
+name = "cloud-audit"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { email = "hloureda@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "awscli>=1.46.0",
+    "awscli-local>=0.22.2",
+    "boto3>=1.43.3",
+    "c7n>=0.9.51",
+    "localstack>=2026.7.1",
+]
+
+[project.scripts]
+cloud-audit = "cloud_audit:main"
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
