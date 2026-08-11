@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Environment / secrets — NEVER commit these
+.env
+*.pem
+credentials.json
+aws_credentials*
+
+# Generated scan output / reports — these are generated, not source
+reports/
+
+# OS junk
+.DS_Store
