@@ -1,0 +1,11 @@
+policies:
+  - name: cis-2-1-1-s3-bucket-public-read
+    resource: aws.s3
+    description: |
+      CIS 2.1.1 - Storage bucket is publicly accessible via bucket policy.
+      Severity: CRITICAL
+    filters:
+      - type: has-statement
+        statements:
+          - Effect: Allow
+            Principal: "*"

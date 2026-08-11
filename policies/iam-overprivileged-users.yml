@@ -1,0 +1,14 @@
+policies:
+  - name: cis-1-14-iam-user-admin-access-with-key
+    resource: aws.iam-user
+    description: |
+      CIS 1.14 (equivalent) - IAM user has AdministratorAccess attached
+      and an active long-lived access key.
+      Severity: CRITICAL
+    filters:
+      - type: policy
+        key: PolicyName
+        value: AdministratorAccess
+      - type: credential
+        key: access_keys.active
+        value: true
