@@ -8,105 +8,124 @@ Run against LocalStack ONLY. Never point this at a real AWS account.
 """
 
 import json
+import os
+import sys
 import boto3
 from botocore.exceptions import ClientError
 
-LOCALSTACK_ENDPOINT = "http://localhost:4566"
-
-FAKE_CREDS = {
-    "aws_access_key_id": "test",
-    "aws_secret_access_key": "test",
-    "region_name": "us-east-1",
-}
-
 
 def get_client(service_name):
-    """Returns a boto3 client pointed at LocalStack instead of real AWS."""
-    return boto3.client(
-        service_name,
-        endpoint_url=LOCALSTACK_ENDPOINT,
-        **FAKE_CREDS,
-    )
-
-
-def seed_public_s3_bucket():
     """
-    Creates a bucket and attaches a public-read policy.
-    Simulates CIS 2.1.1 — publicly accessible storage.
-    Idempotent: safe to re-run even if the bucket already exists.
+    Returns a boto3 client configured from environment variables.
+    Requires AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_DEFAULT_REGION.
+    Optionally uses AWS_ENDPOINT_URL for LocalStack.
     """
-    s3 = get_client("s3")
-    bucket_name = "corporate-data-backup"
+    required_vars = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_DEFAULT_REGION"]
+    missing = [v for v in required_vars if not os.environ.get(v)]
+    if missing:
+        print(f"[ERROR] Missing environment variables: {', '.join(missing)}", file=sys.stderr)
+        print("[ERROR] Set them before running (see .env.example).", file=sys.stderr)
+        sys.exit(1)
 
-    try:
-        print(f"[SEED] Creating bucket: {bucket_name}")
-        s3.create_bucket(Bucket=bucket_name)
-    except ClientError as e:
-        if e.response["Error"]["Code"] in ("BucketAlreadyOwnedByYou", "BucketAlreadyExists"):
-            print(f"[SEED] Bucket {bucket_name} already exists, continuing...")
-        else:
-            raise
-
-    public_policy = {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Sid": "PublicReadAccess",
-                "Effect": "Allow",
-                "Principal": "*",
-                "Action": "s3:GetObject",
-                "Resource": f"arn:aws:s3:::{bucket_name}/*",
-            }
-        ],
+    kwargs = {
+        "aws_access_key_id": os.environ["AWS_ACCESS_KEY_ID"],
+        "aws_secret_access_key": os.environ["AWS_SECRET_ACCESS_KEY"],
+        "region_name": os.environ["AWS_DEFAULT_REGION"],
     }
 
-    # put_bucket_policy is naturally idempotent — re-applying the same
-    # policy is always safe, no try/except needed here
-    print(f"[SEED] Attaching public-read policy to {bucket_name}")
-    s3.put_bucket_policy(Bucket=bucket_name, Policy=json.dumps(public_policy))
+    endpoint = os.environ.get("AWS_ENDPOINT_URL")
+    if endpoint:
+        kwargs["endpoint_url"] = endpoint
 
-    print(f"[SEED] Done — {bucket_name} is now publicly readable (CIS 2.1.1 violation)")
+    return boto3.client(service_name, **kwargs)
 
 
-def seed_overprivileged_iam_user():
+def seed_public_s3_buckets():
     """
-    Creates an IAM user with AdministratorAccess and an active access key.
+    Creates multiple buckets and attaches public-read policies.
+    Simulates CIS 2.1.1 — publicly accessible storage.
+    Idempotent: safe to re-run even if buckets already exist.
+    """
+    s3 = get_client("s3")
+    buckets = [
+        "corporate-data-backup",
+        "hr-public-records",
+        "finance-reports-2026",
+        "legacy-web-assets",
+        "dev-test-data-bucket",
+    ]
+
+    for bucket_name in buckets:
+        try:
+            print(f"[SEED] Creating bucket: {bucket_name}")
+            s3.create_bucket(Bucket=bucket_name)
+        except ClientError as e:
+            if e.response["Error"]["Code"] in ("BucketAlreadyOwnedByYou", "BucketAlreadyExists"):
+                print(f"[SEED] Bucket {bucket_name} already exists, continuing...")
+            else:
+                raise
+
+        public_policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "PublicReadAccess",
+                    "Effect": "Allow",
+                    "Principal": "*",
+                    "Action": "s3:GetObject",
+                    "Resource": f"arn:aws:s3:::{bucket_name}/*",
+                }
+            ],
+        }
+
+        # put_bucket_policy is naturally idempotent
+        print(f"[SEED] Attaching public-read policy to {bucket_name}")
+        s3.put_bucket_policy(Bucket=bucket_name, Policy=json.dumps(public_policy))
+        print(f"[SEED] Done — {bucket_name} is now publicly readable (CIS 2.1.1 violation)")
+
+
+def seed_overprivileged_iam_users():
+    """
+    Creates multiple IAM users with AdministratorAccess and active access keys.
     Simulates CIS 1.14 — root-equivalent, unrestricted long-lived credentials.
-    Idempotent: safe to re-run even if the user already exists.
+    Idempotent: safe to re-run even if the users already exist.
     """
     iam = get_client("iam")
-    user_name = "legacy-automation-user"
+    users = [
+        "legacy-automation-user",
+        "dev-admin-temp",
+        "ci-cd-pipeline-root",
+        "external-contractor-admin",
+        "test-runner-service",
+    ]
 
-    try:
-        print(f"[SEED] Creating IAM user: {user_name}")
-        iam.create_user(UserName=user_name)
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "EntityAlreadyExists":
-            print(f"[SEED] User {user_name} already exists, continuing...")
+    for user_name in users:
+        try:
+            print(f"[SEED] Creating IAM user: {user_name}")
+            iam.create_user(UserName=user_name)
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "EntityAlreadyExists":
+                print(f"[SEED] User {user_name} already exists, continuing...")
+            else:
+                raise
+
+        # attach_user_policy is naturally idempotent
+        print(f"[SEED] Attaching AdministratorAccess policy to {user_name}")
+        iam.attach_user_policy(
+            UserName=user_name,
+            PolicyArn="arn:aws:iam::aws:policy/AdministratorAccess",
+        )
+
+        existing_keys = iam.list_access_keys(UserName=user_name)["AccessKeyMetadata"]
+        if existing_keys:
+            print(f"[SEED] {user_name} already has an access key, skipping creation")
         else:
-            raise
+            print(f"[SEED] Creating long-lived access key for {user_name}")
+            response = iam.create_access_key(UserName=user_name)
+            access_key_id = response["AccessKey"]["AccessKeyId"]
+            print(f"[SEED] Created key {access_key_id}")
 
-    # attach_user_policy is naturally idempotent — attaching an already-attached
-    # policy is a safe no-op, no try/except needed
-    print(f"[SEED] Attaching AdministratorAccess policy to {user_name}")
-    iam.attach_user_policy(
-        UserName=user_name,
-        PolicyArn="arn:aws:iam::aws:policy/AdministratorAccess",
-    )
-
-    # Access keys are trickier: AWS allows max 2 per user, and create_access_key
-    # is NOT idempotent (calling it twice creates two different keys).
-    # So we check first before creating.
-    existing_keys = iam.list_access_keys(UserName=user_name)["AccessKeyMetadata"]
-    if existing_keys:
-        print(f"[SEED] {user_name} already has an access key, skipping creation")
-    else:
-        print(f"[SEED] Creating long-lived access key for {user_name}")
-        response = iam.create_access_key(UserName=user_name)
-        access_key_id = response["AccessKey"]["AccessKeyId"]
-        print(f"[SEED] Created key {access_key_id}")
-
-    print(f"[SEED] Done — {user_name} has AdministratorAccess + active key (CIS 1.14-equivalent violation)")
+        print(f"[SEED] Done — {user_name} has AdministratorAccess + active key (CIS 1.14-equivalent violation)")
 
 
 def verify_no_password_policy():
@@ -127,6 +146,6 @@ def verify_no_password_policy():
             raise
 
 if __name__ == "__main__":
-    seed_public_s3_bucket()
-    seed_overprivileged_iam_user()
+    seed_public_s3_buckets()
+    seed_overprivileged_iam_users()
     verify_no_password_policy()
