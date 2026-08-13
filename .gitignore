@@ -13,5 +13,9 @@ aws_credentials*
 # Generated scan output / reports — these are generated, not source
 reports/
 
+# Personal / AI notes — not for submission
+.agent.md
+resumee.md
+
 # OS junk
 .DS_Store
