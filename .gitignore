@@ -12,6 +12,7 @@ aws_credentials*
 
 # Generated scan output / reports — these are generated, not source
 reports/
+*.html
 
 # Personal / AI notes — not for submission
 .agent.md
