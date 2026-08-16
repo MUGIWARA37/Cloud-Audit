@@ -72,17 +72,17 @@ VALID_FORMATS = ["html", "csv", "json", "all"]
 
 def log_info(msg):
     """Print an informational log line."""
-    print(f"[INFO] {msg}")
+    print(f"\033[92m[INFO]\033[0m {msg}")
 
 
 def log_warn(msg):
     """Print a warning log line."""
-    print(f"[WARN] {msg}")
+    print(f"\033[93m[WARN]\033[0m {msg}")
 
 
 def log_error(msg):
     """Print an error log line to stderr."""
-    print(f"[ERROR] {msg}", file=sys.stderr)
+    print(f"\033[91m[ERROR]\033[0m {msg}", file=sys.stderr)
 
 
 # ─── Argument parsing & validation ──────────────────────────────────────────────
@@ -828,7 +828,10 @@ def main():
         log_info(f"No misconfigurations found at or above {args.severity_filter} severity.")
 
     # ── Step 5: Generate executive report ──
-    os.makedirs("reports", exist_ok=True)
+    timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_dir = os.path.join("reports", f"report_{timestamp_str}")
+    os.makedirs(report_dir, exist_ok=True)
+    
     base_name = f"audit_{args.target_environment}_{args.severity_filter}"
     
     formats_to_gen = ["html", "csv", "json"] if args.output_format.lower() == "all" else [args.output_format.lower()]
@@ -836,7 +839,7 @@ def main():
     log_info(f"Generating reports: {', '.join(formats_to_gen).upper()}...")
 
     for fmt in formats_to_gen:
-        report_path = os.path.join("reports", f"{base_name}.{fmt}")
+        report_path = os.path.join(report_dir, f"{base_name}.{fmt}")
         if fmt == "html":
             generate_html_report(filtered, args, report_path)
         elif fmt == "json":
@@ -845,7 +848,7 @@ def main():
         elif fmt == "csv":
             generate_csv_report(filtered, args, report_path)
 
-    log_info("Reports saved to ./reports/")
+    log_info(f"Reports saved to ./{report_dir}/")
     log_info("Relevant remediation playbooks are available in ./remediation_playbooks/")
 
     if args.webhook_url:
