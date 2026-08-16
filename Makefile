@@ -20,8 +20,8 @@ endif
 # Default arguments (override on the command line)
 ENV       ?= default
 FRAMEWORK ?= cis
-SEVERITY  ?= CRITICAL
-FORMAT    ?= html
+SEVERITY  ?= LOW
+FORMAT    ?= all
 
 .PHONY: audit seed start stop status clean help
 

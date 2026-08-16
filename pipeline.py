@@ -65,7 +65,7 @@ POLICY_METADATA = {
 
 SEVERITY_LEVELS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 VALID_FRAMEWORKS = ["cis"]
-VALID_FORMATS = ["html", "csv", "json"]
+VALID_FORMATS = ["html", "csv", "json", "all"]
 
 
 # ─── Logging helpers ────────────────────────────────────────────────────────────
@@ -828,21 +828,24 @@ def main():
         log_info(f"No misconfigurations found at or above {args.severity_filter} severity.")
 
     # ── Step 5: Generate executive report ──
-    report_name = f"audit_{args.target_environment}_{args.severity_filter}.{args.output_format}"
-    report_path = os.path.join("reports", report_name)
     os.makedirs("reports", exist_ok=True)
+    base_name = f"audit_{args.target_environment}_{args.severity_filter}"
+    
+    formats_to_gen = ["html", "csv", "json"] if args.output_format.lower() == "all" else [args.output_format.lower()]
 
-    log_info(f"Generating {args.output_format.upper()} report...")
+    log_info(f"Generating reports: {', '.join(formats_to_gen).upper()}...")
 
-    if args.output_format == "html":
-        generate_html_report(filtered, args, report_path)
-    elif args.output_format == "json":
-        with open(report_path, "w") as f:
-            json.dump(filtered, f, indent=2)
-    else:
-        generate_csv_report(filtered, args, report_path)
+    for fmt in formats_to_gen:
+        report_path = os.path.join("reports", f"{base_name}.{fmt}")
+        if fmt == "html":
+            generate_html_report(filtered, args, report_path)
+        elif fmt == "json":
+            with open(report_path, "w") as f:
+                json.dump(filtered, f, indent=2)
+        elif fmt == "csv":
+            generate_csv_report(filtered, args, report_path)
 
-    log_info(f"Report saved to ./{report_path}")
+    log_info("Reports saved to ./reports/")
     log_info("Relevant remediation playbooks are available in ./remediation_playbooks/")
 
     if args.webhook_url:
