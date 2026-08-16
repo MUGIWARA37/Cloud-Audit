@@ -26,7 +26,7 @@ against [CIS Benchmarks](https://www.cisecurity.org/cis-benchmarks).
 1. **Authenticate** — reads AWS credentials from environment variables (never hardcoded)
 2. **Scan** — runs Cloud Custodian policies in read-only `--dryrun` mode against CIS benchmarks
 3. **Filter** — parses the raw JSON output and retains only findings at or above the requested severity
-4. **Report** — compiles filtered findings into a clean HTML or CSV executive report
+4. **Report** — compiles filtered findings into a clean HTML, CSV, or JSON executive report
 5. **Remediate** — provides per-finding playbooks with exact CLI commands and Terraform code
 
 ### CIS Checks Implemented
@@ -36,6 +36,7 @@ against [CIS Benchmarks](https://www.cisecurity.org/cis-benchmarks).
 | 2.1.1 | S3 bucket publicly accessible via bucket policy | CRITICAL |
 | 1.14 | IAM user with AdministratorAccess and active access key | CRITICAL |
 | 1.9 | IAM account password policy missing or insufficient | HIGH |
+| 4.1 | Security Group allows unrestricted SSH access (0.0.0.0/0 to port 22) | HIGH |
 
 ## Instructions
 
@@ -113,7 +114,9 @@ uv run python pipeline.py sandbox-01 cis CRITICAL html
 | `target_environment` | Cloud account identifier to audit | Any string (e.g. `default`, `sandbox-01`) |
 | `compliance_framework` | Security standard to scan against | `cis` |
 | `severity_filter` | Minimum severity to include in the report | `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` |
-| `output_format` | Report output format | `html`, `csv` |
+| `output_format` | Report output format | `html`, `csv`, `json` |
+
+You can also pass `--webhook-url <URL>` (or set `WEBHOOK_URL` in your `.env`) to receive rich Slack/Discord alerts when the pipeline finishes.
 
 ### 7. View the report
 
@@ -171,7 +174,8 @@ Each finding at CRITICAL or HIGH severity has a corresponding remediation playbo
 remediation_playbooks/
 ├── cis-2-1-1-s3-public-bucket.md
 ├── cis-1-14-iam-overprivileged-user.md
-└── cis-1-9-iam-password-policy.md
+├── cis-1-9-iam-password-policy.md
+└── cis-4-1-ec2-open-ssh.md
 ```
 
 Every playbook contains five sections:

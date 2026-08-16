@@ -1,0 +1,11 @@
+policies:
+  - name: cis-4-1-ec2-sg-open-ssh
+    resource: aws.security-group
+    description: |
+      CIS 4.1 - Ensure no security groups allow ingress from 0.0.0.0/0 to port 22.
+      Severity: HIGH
+    filters:
+      - type: ingress
+        Cidr:
+          value: 0.0.0.0/0
+        Ports: [22]

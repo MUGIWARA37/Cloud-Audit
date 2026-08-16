@@ -27,7 +27,7 @@ FORMAT    ?= html
 
 ## audit: Run the full CSPM audit pipeline
 audit:
-	uv run python pipeline.py $(ENV) $(FRAMEWORK) $(SEVERITY) $(FORMAT)
+	uv run python pipeline.py $(ENV) $(FRAMEWORK) $(SEVERITY) $(FORMAT) $(if $(WEBHOOK_URL),--webhook-url $(WEBHOOK_URL))
 
 ## seed: Seed the LocalStack environment with vulnerable resources
 seed:
@@ -58,7 +58,7 @@ clean:
 help:
 	@echo "Cloud Audit — Available targets:"
 	@echo ""
-	@echo "  make audit   ENV=sandbox-01 FRAMEWORK=cis SEVERITY=CRITICAL FORMAT=html"
+	@echo "  make audit   ENV=sandbox-01 FRAMEWORK=cis SEVERITY=CRITICAL FORMAT=json"
 	@echo "               Run the full CSPM pipeline with the given arguments."
 	@echo ""
 	@echo "  make seed    Seed LocalStack with vulnerable mock resources."

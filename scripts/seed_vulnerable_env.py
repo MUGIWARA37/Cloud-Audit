@@ -145,7 +145,56 @@ def verify_no_password_policy():
         else:
             raise
 
+def seed_open_ssh_security_groups():
+    """
+    Creates multiple EC2 security groups with SSH open to the world.
+    Simulates CIS 4.1.
+    """
+    ec2 = get_client("ec2")
+    groups = [
+        "default-ssh-open",
+        "web-tier-ssh",
+        "legacy-jump-box",
+    ]
+
+    for sg_name in groups:
+        try:
+            print(f"[SEED] Creating security group: {sg_name}")
+            response = ec2.create_security_group(
+                GroupName=sg_name,
+                Description="Vulnerable SG created by Cloud Audit seed script"
+            )
+            sg_id = response['GroupId']
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "InvalidGroup.Duplicate":
+                print(f"[SEED] Security group {sg_name} already exists, continuing...")
+                response = ec2.describe_security_groups(GroupNames=[sg_name])
+                sg_id = response['SecurityGroups'][0]['GroupId']
+            else:
+                raise
+
+        try:
+            print(f"[SEED] Authorizing ingress 0.0.0.0/0 on port 22 for {sg_name}")
+            ec2.authorize_security_group_ingress(
+                GroupId=sg_id,
+                IpPermissions=[
+                    {
+                        'IpProtocol': 'tcp',
+                        'FromPort': 22,
+                        'ToPort': 22,
+                        'IpRanges': [{'CidrIp': '0.0.0.0/0'}]
+                    }
+                ]
+            )
+            print(f"[SEED] Done — {sg_name} has unrestricted SSH (CIS 4.1 violation)")
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "InvalidPermission.Duplicate":
+                print(f"[SEED] Ingress rule already exists on {sg_name}, skipping...")
+            else:
+                raise
+
 if __name__ == "__main__":
     seed_public_s3_buckets()
     seed_overprivileged_iam_users()
+    seed_open_ssh_security_groups()
     verify_no_password_policy()

@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.request
 
 
 # ─── Policy metadata ────────────────────────────────────────────────────────────
@@ -52,11 +53,19 @@ POLICY_METADATA = {
         "resource_type": "IAM Account",
         "domain": "Identity & Access",
     },
+    "cis-4-1-ec2-sg-open-ssh": {
+        "cis_id": "CIS 4.1",
+        "severity": "HIGH",
+        "title": "Security Group allows unrestricted SSH access (0.0.0.0/0 to port 22)",
+        "policy_file": "policies/ec2-open-ssh.yml",
+        "resource_type": "Security Group",
+        "domain": "Compute",
+    },
 }
 
 SEVERITY_LEVELS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 VALID_FRAMEWORKS = ["cis"]
-VALID_FORMATS = ["html", "csv"]
+VALID_FORMATS = ["html", "csv", "json"]
 
 
 # ─── Logging helpers ────────────────────────────────────────────────────────────
@@ -97,7 +106,12 @@ def parse_args():
     )
     parser.add_argument(
         "output_format",
-        help="Report format: 'html' or 'csv'",
+        help="Report format: 'html', 'csv', or 'json'",
+    )
+    parser.add_argument(
+        "--webhook-url",
+        help="Optional Slack/Discord webhook URL to send notifications upon completion",
+        default=os.environ.get("WEBHOOK_URL"),
     )
     return parser.parse_args()
 
@@ -262,6 +276,9 @@ def get_resource_identifier(resource, policy_name):
     # IAM users
     if "UserName" in resource:
         return resource["UserName"]
+    # EC2 Security Groups
+    if "GroupName" in resource and "GroupId" in resource:
+        return f"{resource['GroupName']} ({resource['GroupId']})"
     # Account-level findings (password policy)
     if "account_id" in resource:
         return f"account:{resource['account_id']}"
@@ -819,12 +836,84 @@ def main():
 
     if args.output_format == "html":
         generate_html_report(filtered, args, report_path)
+    elif args.output_format == "json":
+        with open(report_path, "w") as f:
+            json.dump(filtered, f, indent=2)
     else:
         generate_csv_report(filtered, args, report_path)
 
     log_info(f"Report saved to ./{report_path}")
     log_info("Relevant remediation playbooks are available in ./remediation_playbooks/")
 
+    if args.webhook_url:
+        log_info("Sending webhook notification...")
+        color = 0x36A64F  # Green (All clear)
+        if len(filtered) > 0:
+            if args.severity_filter in ["CRITICAL", "HIGH"]:
+                color = 0xFF0000  # Red (Critical/High findings)
+            else:
+                color = 0xFFA500  # Orange (Medium/Low findings)
+
+
+        # Group findings by domain
+        domain_findings = {}
+        for f in filtered:
+            dom = f.get("domain", "General")
+            if dom not in domain_findings:
+                domain_findings[dom] = []
+            domain_findings[dom].append(f"• **{f['cis_id']}**: {f['title']}\n  └ `[{f['resource']}]`")
+
+        fields = [
+            {
+                "name": "Total Findings",
+                "value": f"{len(filtered)} (>= {args.severity_filter})",
+                "inline": True
+            },
+            {
+                "name": "Policies Scanned",
+                "value": str(total_checks),
+                "inline": True
+            }
+        ]
+
+        for dom, f_list in domain_findings.items():
+            val = "\n".join(f_list)
+            if len(val) > 1024:
+                val = val[:1000] + "\n... *(truncated)*"
+            fields.append({
+                "name": f"📁 {dom}",
+                "value": val,
+                "inline": False
+            })
+
+        embed = {
+            "title": f"🚨 Cloud Audit Complete: {args.target_environment}",
+            "description": f"The CSPM scan against `{args.compliance_framework.upper()}` benchmarks has finished.",
+            "color": color,
+            "fields": fields,
+            "footer": {
+                "text": "Cloud Audit Security Pipeline"
+            }
+        }
+
+        fallback_msg = f"🚨 **Cloud Audit Complete ({args.target_environment})**: {len(filtered)} findings detected (>= {args.severity_filter})."
+        payload = json.dumps({
+            "content": "",  # Empty content so only the embed shows
+            "embeds": [embed],
+            "text": fallback_msg  # Slack fallback
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            args.webhook_url,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "CloudAudit/1.0"
+            }
+        )
+        try:
+            urllib.request.urlopen(req, timeout=10)
+        except Exception as e:
+            log_warn(f"Failed to send webhook notification: {e}")
 
 if __name__ == "__main__":
     main()
