@@ -12,13 +12,12 @@ aws_credentials*
 
 # Generated scan output / reports — these are generated, not source
 reports/
-*.html
-*.csv
-*.json
 
 # Personal / AI notes — not for submission
 .agent.md
 resumee.md
+cov.md
 
 # OS junk
 .DS_Store
+Thumbs.db

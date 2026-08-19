@@ -16,18 +16,20 @@ against [CIS Benchmarks](https://www.cisecurity.org/cis-benchmarks).
 **How the pipeline works:**
 
 ```
-┌──────────────┐     ┌──────────────────┐     ┌────────────────┐     ┌────────────┐
-│  Authenticate │────▶│  Run Custodian    │────▶│  Filter by     │────▶│  Generate  │
-│  (env vars)   │     │  policies         │     │  severity      │     │  report    │
-│               │     │  (--dryrun)       │     │  threshold     │     │  (HTML/CSV)│
-└──────────────┘     └──────────────────┘     └────────────────┘     └────────────┘
+ ┌──────────────┐     ┌──────────────────┐     ┌────────────────┐     ┌────────────┐     ┌────────────┐
+ │ Authenticate │────▶│  Run Custodian   │────▶│  Filter by     │────▶│  Track     │────▶│  Generate  │
+ │ (env vars)   │     │  policies        │     │  severity      │     │  History   │     │  Reports   │
+ │              │     │  (--dryrun)      │     │  threshold     │     │  (JSON DB) │     │  + Notify  │
+ └──────────────┘     └──────────────────┘     └────────────────┘     └────────────┘     └────────────┘
 ```
 
 1. **Authenticate** — reads AWS credentials from environment variables (never hardcoded)
 2. **Scan** — runs Cloud Custodian policies in read-only `--dryrun` mode against CIS benchmarks
 3. **Filter** — parses the raw JSON output and retains only findings at or above the requested severity
-4. **Report** — compiles filtered findings into a clean HTML, CSV, or JSON executive report
-5. **Remediate** — provides per-finding playbooks with exact CLI commands and Terraform code
+4. **Track** — appends the scan summary to `reports/history.json`, a persistent time-series database
+5. **Report** — compiles filtered findings into HTML, CSV, and/or JSON reports (all formats by default)
+6. **Notify** — sends a rich Discord/Slack webhook embed with severity-grouped findings
+7. **Remediate** — provides per-finding playbooks with exact CLI commands and Terraform code
 
 ### CIS Checks Implemented
 
@@ -114,17 +116,30 @@ uv run python pipeline.py sandbox-01 cis CRITICAL html
 | `target_environment` | Cloud account identifier to audit | Any string (e.g. `default`, `sandbox-01`) |
 | `compliance_framework` | Security standard to scan against | `cis` |
 | `severity_filter` | Minimum severity to include in the report | `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` |
-| `output_format` | Report output format | `html`, `csv`, `json` |
+| `output_format` | Report output format | `html`, `csv`, `json`, `all` (default: generates all three) |
 
 You can also pass `--webhook-url <URL>` (or set `WEBHOOK_URL` in your `.env`) to receive rich Slack/Discord alerts when the pipeline finishes.
 
-### 7. View the report
+### 7. Seed historical data (optional)
 
-Reports are saved to `reports/`. Open the HTML report in a browser:
+To populate the interactive dashboard with a full year of historical trend data:
 
 ```bash
-xdg-open reports/audit_sandbox-01_CRITICAL.html
+make seed-history
 ```
+
+### 8. View the report
+
+Reports are saved to `reports/` in timestamped subdirectories. A master dashboard is always available at:
+
+```bash
+xdg-open reports/latest.html
+```
+
+The `latest.html` dashboard features:
+- **Date Search** — pick any date to see that day's severity breakdown (doughnut chart + stats)
+- **Line Chart** — total findings trend over the past year
+- **Stacked Bar Chart** — severity breakdown (Critical/High/Medium/Low) over time
 
 ## Blocking Cases Handled
 

@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 """
 Cloud Audit Pipeline — Automated CSPM execution, filtering, and remediation.
-
 Runs Cloud Custodian policies in --dryrun mode against a target cloud environment,
 filters the results by severity, and generates an executive report (HTML or CSV).
-
 Usage:
     uv run python pipeline.py <target_environment> <compliance_framework> <severity_filter> <output_format>
-
 Example:
     uv run python pipeline.py sandbox-01 cis CRITICAL html
 """
-
 import argparse
 import csv
 import datetime
@@ -22,12 +18,9 @@ import subprocess
 import sys
 import time
 import urllib.request
-
-
 # ─── Policy metadata ────────────────────────────────────────────────────────────
 # Custodian's YAML `tags` field is schema-reserved (expects list[str]), so the
 # severity and CIS-ID mapping lives here in Python, keyed by policy name.
-
 POLICY_METADATA = {
     "cis-2-1-1-s3-bucket-public-read": {
         "cis_id": "CIS 2.1.1",
@@ -62,31 +55,20 @@ POLICY_METADATA = {
         "domain": "Compute",
     },
 }
-
 SEVERITY_LEVELS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 VALID_FRAMEWORKS = ["cis"]
 VALID_FORMATS = ["html", "csv", "json", "all"]
-
-
 # ─── Logging helpers ────────────────────────────────────────────────────────────
-
 def log_info(msg):
     """Print an informational log line."""
     print(f"\033[92m[INFO]\033[0m {msg}")
-
-
 def log_warn(msg):
     """Print a warning log line."""
     print(f"\033[93m[WARN]\033[0m {msg}")
-
-
 def log_error(msg):
     """Print an error log line to stderr."""
     print(f"\033[91m[ERROR]\033[0m {msg}", file=sys.stderr)
-
-
 # ─── Argument parsing & validation ──────────────────────────────────────────────
-
 def parse_args():
     """Parse the 4 required positional CLI arguments."""
     parser = argparse.ArgumentParser(
@@ -114,46 +96,36 @@ def parse_args():
         default=os.environ.get("WEBHOOK_URL"),
     )
     return parser.parse_args()
-
-
 def validate_args(args):
     """
     Validate all arguments and exit with clean messages on bad input.
     Normalizes casing after validation (framework→lower, severity→upper, format→lower).
     """
     errors = []
-
     if args.compliance_framework.lower() not in VALID_FRAMEWORKS:
         errors.append(
             f"Unsupported compliance framework '{args.compliance_framework}'. "
             f"Supported: {', '.join(VALID_FRAMEWORKS)}"
         )
-
     if args.severity_filter.upper() not in SEVERITY_LEVELS:
         errors.append(
             f"Invalid severity filter '{args.severity_filter}'. "
             f"Must be one of: {', '.join(SEVERITY_LEVELS)}"
         )
-
     if args.output_format.lower() not in VALID_FORMATS:
         errors.append(
             f"Unsupported output format '{args.output_format}'. "
             f"Supported: {', '.join(VALID_FORMATS)}"
         )
-
     if errors:
         for err in errors:
             log_error(err)
         sys.exit(1)
-
     # Normalize casing for internal use
     args.compliance_framework = args.compliance_framework.lower()
     args.severity_filter = args.severity_filter.upper()
     args.output_format = args.output_format.lower()
-
-
 # ─── Environment / authentication ───────────────────────────────────────────────
-
 def check_environment():
     """
     Verify required AWS environment variables are set.
@@ -161,13 +133,10 @@ def check_environment():
     """
     required_vars = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_DEFAULT_REGION"]
     missing = [v for v in required_vars if not os.environ.get(v)]
-
     if missing:
         log_error(f"Missing required environment variables: {', '.join(missing)}")
         log_error("Set them before running the pipeline. See .env.example for reference.")
         sys.exit(1)
-
-
 def find_custodian_binary():
     """
     Locate the custodian CLI binary. When running under `uv run`, it should
@@ -176,26 +145,19 @@ def find_custodian_binary():
     path = shutil.which("custodian")
     if path:
         return path
-
     # Fallback: look in the project's .venv/bin
     venv_path = os.path.join(".venv", "bin", "custodian")
     if os.path.isfile(venv_path):
         return venv_path
-
     return None
-
-
 # ─── Custodian execution with exponential backoff ───────────────────────────────
-
 def run_custodian_policy(custodian_bin, policy_file, output_dir, max_retries=3):
     """
     Run a single Custodian policy via subprocess in --dryrun mode.
     Implements exponential backoff on rate-limit or timeout errors.
-
     Returns True on success, False on failure after all retries.
     """
     cmd = [custodian_bin, "run", "--dryrun", "--cache-period", "0", "-s", output_dir, policy_file]
-
     for attempt in range(max_retries):
         try:
             result = subprocess.run(
@@ -204,12 +166,9 @@ def run_custodian_policy(custodian_bin, policy_file, output_dir, max_retries=3):
                 text=True,
                 timeout=120,
             )
-
             if result.returncode == 0:
                 return True
-
             stderr = result.stderr.strip()
-
             # Detect rate-limit errors and retry with backoff
             if "Throttling" in stderr or "Rate exceeded" in stderr or "RequestLimitExceeded" in stderr:
                 wait = 2 ** (attempt + 1)
@@ -219,11 +178,9 @@ def run_custodian_policy(custodian_bin, policy_file, output_dir, max_retries=3):
                 )
                 time.sleep(wait)
                 continue
-
             # Non-rate-limit error — log and fail immediately
             log_error(f"Custodian failed for {policy_file}: {stderr}")
             return False
-
         except subprocess.TimeoutExpired:
             wait = 2 ** (attempt + 1)
             log_warn(
@@ -231,25 +188,18 @@ def run_custodian_policy(custodian_bin, policy_file, output_dir, max_retries=3):
                 f"Backing off {wait}s ({attempt + 1}/{max_retries})..."
             )
             time.sleep(wait)
-
     log_error(f"Failed to run {policy_file} after {max_retries} retries.")
     return False
-
-
 # ─── Output parsing ─────────────────────────────────────────────────────────────
-
 def parse_custodian_results(output_dir, policy_name):
     """
     Read Custodian's resources.json for a given policy.
     Returns the list of matched (failing) resources, or an empty list.
-
     Custodian writes output to: <output_dir>/<policy_name>/resources.json
     """
     resources_file = os.path.join(output_dir, policy_name, "resources.json")
-
     if not os.path.exists(resources_file):
         return []
-
     try:
         with open(resources_file, "r") as f:
             data = json.load(f)
@@ -257,17 +207,11 @@ def parse_custodian_results(output_dir, policy_name):
     except (json.JSONDecodeError, IOError) as e:
         log_warn(f"Could not parse {resources_file}: {e}")
         return []
-
-
 # ─── Severity filtering ─────────────────────────────────────────────────────────
-
 def severity_meets_threshold(finding_severity, threshold):
     """Returns True if the finding's severity is at or above the threshold."""
     return SEVERITY_LEVELS.index(finding_severity) >= SEVERITY_LEVELS.index(threshold)
-
-
 # ─── Resource identification ────────────────────────────────────────────────────
-
 def get_resource_identifier(resource, policy_name):
     """Extract a human-readable name from a Custodian resource dict."""
     # S3 buckets
@@ -284,22 +228,17 @@ def get_resource_identifier(resource, policy_name):
         return f"account:{resource['account_id']}"
     # Generic fallback
     return json.dumps(resource, default=str)[:80]
-
-
 # ─── HTML report generation ─────────────────────────────────────────────────────
-
-def generate_html_report(findings, args, report_path):
+def generate_html_report(findings, args, report_path, history=None):
     """Generate a premium dark-themed HTML executive report."""
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     date_str = datetime.datetime.now().strftime("%B %d, %Y")
-
     critical_count = sum(1 for f in findings if f["severity"] == "CRITICAL")
     high_count = sum(1 for f in findings if f["severity"] == "HIGH")
     medium_count = sum(1 for f in findings if f["severity"] == "MEDIUM")
     low_count = sum(1 for f in findings if f["severity"] == "LOW")
     policies_scanned = len(POLICY_METADATA)
     total_findings = len(findings)
-
     # Build finding cards
     finding_cards = ""
     for i, f in enumerate(findings):
@@ -310,7 +249,6 @@ def generate_html_report(findings, args, report_path):
             "medium": "&#x25C6;",    # ◆
             "low": "&#x2139;",       # ℹ
         }.get(sev, "&#x25CF;")
-
         finding_cards += f'''
         <div class="finding-card">
           <div class="finding-header">
@@ -328,14 +266,12 @@ def generate_html_report(findings, args, report_path):
             <span class="playbook-link">&#x1F4D6; Remediation playbook available</span>
           </div>
         </div>'''
-
     empty_state = '''
         <div class="empty-state">
           <div class="empty-icon">&#x2705;</div>
           <h3>All Clear</h3>
           <p>No misconfigurations found at or above the selected severity threshold.</p>
         </div>'''
-
     # Severity breakdown bar data
     sev_bar_data = []
     if critical_count:
@@ -346,7 +282,6 @@ def generate_html_report(findings, args, report_path):
         sev_bar_data.append(("medium", medium_count))
     if low_count:
         sev_bar_data.append(("low", low_count))
-
     donut_segments = ""
     cumulative_pct = 0
     if total_findings > 0:
@@ -355,7 +290,6 @@ def generate_html_report(findings, args, report_path):
             offset = -cumulative_pct
             donut_segments += f'<circle class="donut-segment seg-{sev_class}" cx="21" cy="21" r="15.9155" fill="transparent" stroke-width="6" stroke-dasharray="{pct} {100-pct}" stroke-dashoffset="{offset}"></circle>'
             cumulative_pct += pct
-
     bar_legend = ""
     legend_items = [
         ("critical", "Critical", critical_count),
@@ -371,7 +305,6 @@ def generate_html_report(findings, args, report_path):
               <span class="legend-label">{label}</span>
               <span class="legend-count">{count}</span>
             </div>'''
-
     # Generate horizontal bars for Domain and Resource distributions
     domain_counts = {}
     resource_counts = {}
@@ -394,10 +327,201 @@ def generate_html_report(findings, args, report_path):
               <div class="hz-track"><div class="hz-fill" style="width: {pct:.1f}%"></div></div>
             </div>'''
         return out_html
-
     domain_bars = generate_hz_bars(domain_counts)
     resource_bars = generate_hz_bars(resource_counts)
+    history_json = json.dumps(history or [])
+    history_html = f'''
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+  <!-- ── Date Search Section ── -->
+  <section class="panel-section" style="margin-top: 24px; margin-bottom: 24px;">
+    <h2 class="sev-bar-title">&#x1F50D; Search History by Date</h2>
+    <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px;">
+      <input type="date" id="dateSearch" style="
+        padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line);
+        background: var(--panel-raised); color: var(--parchment); font-family: var(--font-mono);
+        font-size: 14px; cursor: pointer;
+      ">
+      <button onclick="searchByDate()" style="
+        padding: 8px 18px; border-radius: 6px; border: 1px solid var(--brass);
+        background: rgba(176,141,87,0.15); color: var(--brass); font-weight: 600;
+        font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer;
+      ">Search</button>
+      <button onclick="resetSearch()" style="
+        padding: 8px 18px; border-radius: 6px; border: 1px solid var(--line);
+        background: transparent; color: var(--parchment-dim); font-weight: 600;
+        font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer;
+      ">Reset</button>
+    </div>
+    <div id="dateResult" style="
+      background: var(--panel-raised); border: 1px solid var(--line); border-radius: 8px;
+      padding: 16px; display: none;
+    ">
+      <div style="display: flex; gap: 24px; align-items: center; flex-wrap: wrap;">
+        <div style="flex: none; width: 160px; height: 160px; position: relative;">
+          <canvas id="dateDonutChart"></canvas>
+          <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
+            <span id="dateDonutTotal" style="font-family: var(--font-mono); font-size: 28px; font-weight: 600; color: var(--parchment); line-height: 1;"></span>
+            <span style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--brass-dim); margin-top: 4px;">Findings</span>
+          </div>
+        </div>
+        <div style="flex: 1; min-width: 200px;">
+          <h3 id="dateResultTitle" style="font-family: var(--font-display); font-size: 18px; font-weight: 500; color: var(--parchment); margin: 0 0 12px;"></h3>
+          <div id="dateResultStats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px;"></div>
+        </div>
+      </div>
+    </div>
+    <div id="dateNotFound" style="display: none; text-align: center; padding: 20px; color: var(--parchment-dim); font-size: 13px;">
+      &#x26A0; No scan data found for this date.
+    </div>
+  </section>
+
+  <!-- ── Historical Trend Line Chart ── -->
+  <section class="panel-section" style="margin-bottom: 24px;">
+    <h2 class="sev-bar-title">&#x1F4C8; Total Findings Over Time</h2>
+    <div style="background: var(--panel-raised); border: 1px solid var(--line); border-radius: 8px; padding: 16px; height: 280px;">
+      <canvas id="historyChart"></canvas>
+    </div>
+  </section>
+
+  <!-- ── Severity Stacked Bar Chart ── -->
+  <section class="panel-section" style="margin-bottom: 24px;">
+    <h2 class="sev-bar-title">&#x1F4CA; Severity Breakdown Over Time</h2>
+    <div style="background: var(--panel-raised); border: 1px solid var(--line); border-radius: 8px; padding: 16px; height: 320px;">
+      <canvas id="severityBarChart"></canvas>
+    </div>
+  </section>
+
+  <script>
+    const historyData = {history_json};
+
+    // ── Line Chart: Total Findings ──
+    (function() {{
+      if (!historyData || historyData.length === 0) return;
+      const ctx = document.getElementById('historyChart').getContext('2d');
+      new Chart(ctx, {{
+        type: 'line',
+        data: {{
+          labels: historyData.map(d => d.date),
+          datasets: [{{
+            label: 'Total Findings',
+            data: historyData.map(d => d.total),
+            borderColor: '#E38547',
+            backgroundColor: 'rgba(227, 133, 71, 0.1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            fill: true,
+            tension: 0.3
+          }}]
+        }},
+        options: {{
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {{ legend: {{ display: false }} }},
+          scales: {{
+            y: {{ beginAtZero: true, grid: {{ color: '#3B2E23' }}, ticks: {{ color: '#B7AB96' }} }},
+            x: {{ grid: {{ display: false }}, ticks: {{ color: '#B7AB96', maxTicksLimit: 12 }} }}
+          }}
+        }}
+      }});
+    }})();
+
+    // ── Stacked Bar Chart: Severity Breakdown ──
+    (function() {{
+      if (!historyData || historyData.length === 0) return;
+      // Sample every N entries so bars are readable
+      const maxBars = 30;
+      const step = Math.max(1, Math.floor(historyData.length / maxBars));
+      const sampled = historyData.filter((_, i) => i % step === 0 || i === historyData.length - 1);
+
+      const ctx = document.getElementById('severityBarChart').getContext('2d');
+      new Chart(ctx, {{
+        type: 'bar',
+        data: {{
+          labels: sampled.map(d => d.date),
+          datasets: [
+            {{ label: 'Critical', data: sampled.map(d => d.critical), backgroundColor: '#C4622D' }},
+            {{ label: 'High',     data: sampled.map(d => d.high),     backgroundColor: '#E8C468' }},
+            {{ label: 'Medium',   data: sampled.map(d => d.medium),   backgroundColor: '#B08D57' }},
+            {{ label: 'Low',      data: sampled.map(d => d.low),      backgroundColor: '#9CB37C' }}
+          ]
+        }},
+        options: {{
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {{
+            legend: {{
+              position: 'top',
+              labels: {{ color: '#B7AB96', boxWidth: 12, padding: 16, font: {{ size: 11 }} }}
+            }}
+          }},
+          scales: {{
+            x: {{ stacked: true, grid: {{ display: false }}, ticks: {{ color: '#B7AB96', maxRotation: 45 }} }},
+            y: {{ stacked: true, beginAtZero: true, grid: {{ color: '#3B2E23' }}, ticks: {{ color: '#B7AB96' }} }}
+          }}
+        }}
+      }});
+    }})();
+
+    // ── Date Search: Doughnut + Stats ──
+    let dateDonutInstance = null;
+
+    function searchByDate() {{
+      const input = document.getElementById('dateSearch').value;
+      if (!input) return;
+      const entry = historyData.find(d => d.date === input);
+      const resultDiv = document.getElementById('dateResult');
+      const notFound = document.getElementById('dateNotFound');
+
+      if (!entry) {{
+        resultDiv.style.display = 'none';
+        notFound.style.display = 'block';
+        return;
+      }}
+      notFound.style.display = 'none';
+      resultDiv.style.display = 'block';
+
+      document.getElementById('dateResultTitle').textContent = 'Scan Results for ' + entry.date;
+      document.getElementById('dateDonutTotal').textContent = entry.total;
+
+      const statsHtml =
+        '<div style="text-align:center;"><span style="font-family:var(--font-mono);font-size:24px;font-weight:600;color:#E38547;">' + entry.critical + '</span><div style="font-size:10px;color:var(--brass-dim);text-transform:uppercase;letter-spacing:0.08em;margin-top:4px;">Critical</div></div>' +
+        '<div style="text-align:center;"><span style="font-family:var(--font-mono);font-size:24px;font-weight:600;color:#E8C468;">' + entry.high + '</span><div style="font-size:10px;color:var(--brass-dim);text-transform:uppercase;letter-spacing:0.08em;margin-top:4px;">High</div></div>' +
+        '<div style="text-align:center;"><span style="font-family:var(--font-mono);font-size:24px;font-weight:600;color:#B08D57;">' + entry.medium + '</span><div style="font-size:10px;color:var(--brass-dim);text-transform:uppercase;letter-spacing:0.08em;margin-top:4px;">Medium</div></div>' +
+        '<div style="text-align:center;"><span style="font-family:var(--font-mono);font-size:24px;font-weight:600;color:#9CB37C;">' + entry.low + '</span><div style="font-size:10px;color:var(--brass-dim);text-transform:uppercase;letter-spacing:0.08em;margin-top:4px;">Low</div></div>';
+      document.getElementById('dateResultStats').innerHTML = statsHtml;
+
+      // Destroy previous doughnut if it exists
+      if (dateDonutInstance) dateDonutInstance.destroy();
+      const ctx = document.getElementById('dateDonutChart').getContext('2d');
+      dateDonutInstance = new Chart(ctx, {{
+        type: 'doughnut',
+        data: {{
+          labels: ['Critical', 'High', 'Medium', 'Low'],
+          datasets: [{{
+            data: [entry.critical, entry.high, entry.medium, entry.low],
+            backgroundColor: ['#C4622D', '#E8C468', '#B08D57', '#9CB37C'],
+            borderColor: '#241C17',
+            borderWidth: 2
+          }}]
+        }},
+        options: {{
+          responsive: true,
+          maintainAspectRatio: true,
+          cutout: '65%',
+          plugins: {{ legend: {{ display: false }} }}
+        }}
+      }});
+    }}
+
+    function resetSearch() {{
+      document.getElementById('dateSearch').value = '';
+      document.getElementById('dateResult').style.display = 'none';
+      document.getElementById('dateNotFound').style.display = 'none';
+      if (dateDonutInstance) {{ dateDonutInstance.destroy(); dateDonutInstance = null; }}
+    }}
+  </script>
+'''
     html = f'''<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -427,7 +551,6 @@ def generate_html_report(findings, args, report_path):
     --font-body: 'IBM Plex Sans', -apple-system, sans-serif;
     --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
   }}
-
   *, *::before, *::after {{ box-sizing: border-box; }}
   html, body {{ margin: 0; padding: 0; }}
   body {{
@@ -439,9 +562,7 @@ def generate_html_report(findings, args, report_path):
     -webkit-font-smoothing: antialiased;
     min-height: 100vh;
   }}
-
   .report {{ max-width: 1100px; margin: 0 auto; padding: 32px 28px 64px; }}
-
   /* ── header ── */
   .report-header {{
     display: flex; align-items: center; justify-content: space-between;
@@ -463,7 +584,6 @@ def generate_html_report(findings, args, report_path):
     letter-spacing: 0.12em; color: var(--brass-dim); margin-bottom: 3px;
   }}
   .meta-value {{ font-family: var(--font-mono); font-size: 15px; color: var(--parchment); }}
-
   /* ── stat cards ── */
   .stats-grid {{
     display: grid;
@@ -485,7 +605,6 @@ def generate_html_report(findings, args, report_path):
   .stat-value.val-critical {{ color: var(--ember-bright); }}
   .stat-value.val-high {{ color: var(--gold); }}
   .stat-value.val-pass {{ color: var(--moss-bright); }}
-
   /* ── severity chart ── */
   .sev-chart-section {{
     background: var(--panel); border: 1px solid var(--line);
@@ -529,7 +648,6 @@ def generate_html_report(findings, args, report_path):
   .dot-pass {{ background: var(--moss); }}
   .legend-label {{ color: var(--parchment-dim); }}
   .legend-count {{ font-family: var(--font-mono); font-weight: 600; color: var(--parchment); }}
-
   /* ── horizontal bar graphs ── */
   .chart-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; margin-bottom: 24px; }}
   .panel-section {{ background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 24px; }}
@@ -538,7 +656,6 @@ def generate_html_report(findings, args, report_path):
   .hz-label {{ font-size: 11px; color: var(--parchment-dim); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; display: flex; justify-content: space-between; font-weight: 600; }}
   .hz-track {{ height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; }}
   .hz-fill {{ height: 100%; background: var(--ember-bright); border-radius: 999px; transition: width 1s ease; }}
-
   /* ── findings ── */
   .findings-section {{
     background: var(--panel); border: 1px solid var(--line);
@@ -590,7 +707,6 @@ def generate_html_report(findings, args, report_path):
   }}
   .finding-footer {{ font-size: 11.5px; color: var(--moss-bright); }}
   .playbook-link {{ opacity: 0.8; }}
-
   /* ── empty state ── */
   .empty-state {{
     text-align: center; padding: 48px 20px;
@@ -601,14 +717,12 @@ def generate_html_report(findings, args, report_path):
     color: var(--moss-bright); margin: 0 0 8px;
   }}
   .empty-state p {{ font-size: 13px; color: var(--parchment-dim); margin: 0; }}
-
   /* ── footer ── */
   .report-footer {{
     margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line);
     font-size: 11px; color: var(--brass-dim);
     display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
   }}
-
   /* ── responsive ── */
   @media (max-width: 640px) {{
     .report {{ padding: 20px 16px 48px; }}
@@ -617,7 +731,6 @@ def generate_html_report(findings, args, report_path):
     .header-meta {{ gap: 20px; }}
     .meta-item {{ text-align: left; }}
   }}
-
   @media print {{
     body {{ background: #fff; color: #111; }}
     .report {{ padding: 0; }}
@@ -629,9 +742,7 @@ def generate_html_report(findings, args, report_path):
 </style>
 </head>
 <body>
-
 <div class="report">
-
   <header class="report-header">
     <div class="brand">
       <svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
@@ -659,7 +770,6 @@ def generate_html_report(findings, args, report_path):
       </div>
     </div>
   </header>
-
   <div class="stats-grid">
     <div class="stat-card">
       <div class="stat-value">{policies_scanned}</div>
@@ -678,7 +788,6 @@ def generate_html_report(findings, args, report_path):
       <div class="stat-label">High</div>
     </div>
   </div>
-
   <div class="sev-chart-section">
     <div class="chart-wrapper">
       <svg class="donut-chart" viewBox="0 0 42 42">
@@ -697,7 +806,6 @@ def generate_html_report(findings, args, report_path):
       </div>
     </div>
   </div>
-
   <div class="chart-grid">
     <div class="panel-section">
       <h2 class="sev-bar-title">Findings by Domain</h2>
@@ -708,32 +816,24 @@ def generate_html_report(findings, args, report_path):
       {resource_bars}
     </div>
   </div>
-
+  {history_html}
   <section class="findings-section">
     <h2 class="section-title">Findings &mdash; Severity &ge; {args.severity_filter}</h2>
     {finding_cards if finding_cards else empty_state}
   </section>
-
   <footer class="report-footer">
     <span>Cloud Audit Pipeline &mdash; Automated CSPM Report</span>
     <span>{timestamp}</span>
   </footer>
-
 </div>
-
 </body>
 </html>'''
-
     with open(report_path, "w") as f:
         f.write(html)
-
-
 # ─── CSV report generation ──────────────────────────────────────────────────────
-
 def generate_csv_report(findings, args, report_path):
     """Generate a CSV executive report."""
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
     with open(report_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
@@ -750,10 +850,7 @@ def generate_csv_report(findings, args, report_path):
                 args.compliance_framework.upper(),
                 timestamp,
             ])
-
-
 # ─── Main pipeline ──────────────────────────────────────────────────────────────
-
 def main():
     """
     Entry point. Orchestrates the full audit pipeline:
@@ -761,11 +858,9 @@ def main():
     """
     args = parse_args()
     validate_args(args)
-
     # ── Step 1: Authentication check ──
     log_info(f"Authenticating to {args.target_environment}...")
     check_environment()
-
     # ── Step 2: Locate Custodian binary ──
     custodian_bin = find_custodian_binary()
     if not custodian_bin:
@@ -774,29 +869,22 @@ def main():
             "Is c7n installed? Try: uv sync && uv run custodian version"
         )
         sys.exit(1)
-
     # ── Step 3: Run all policies ──
     log_info(f"Executing CSPM scan against {args.compliance_framework.upper()} benchmarks...")
-
     output_base = os.path.join("reports", f"scan_{args.target_environment}")
     os.makedirs(output_base, exist_ok=True)
-
     total_checks = 0
     all_findings = []
-
     for policy_name, meta in POLICY_METADATA.items():
         total_checks += 1
         policy_path = meta["policy_file"]
-
         if not os.path.isfile(policy_path):
             log_warn(f"Policy file not found: {policy_path} — skipping.")
             continue
-
         success = run_custodian_policy(custodian_bin, policy_path, output_base)
         if not success:
             log_warn(f"Skipping {policy_name} due to execution failure.")
             continue
-
         # Parse matched (failing) resources
         resources = parse_custodian_results(output_base, policy_name)
         for resource in resources:
@@ -809,48 +897,67 @@ def main():
                 "resource_type": meta.get("resource_type", "Unknown"),
                 "domain": meta.get("domain", "General"),
             })
-
     log_info(f"Scan complete. {total_checks} checks performed.")
-
     # ── Step 4: Filter by severity threshold ──
     log_info(f"Filtering results for {args.severity_filter} severity...")
-
     filtered = [
         f for f in all_findings
         if severity_meets_threshold(f["severity"], args.severity_filter)
     ]
-
     if filtered:
         log_warn(f"{len(filtered)} misconfigurations found (>= {args.severity_filter}):")
         for f in filtered:
             print(f"       - {f['cis_id']}: {f['title']} [{f['resource']}]")
     else:
         log_info(f"No misconfigurations found at or above {args.severity_filter} severity.")
-
-    # ── Step 5: Generate executive report ──
+    # ── Step 5: Track History & Generate Reports ──
     timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     report_dir = os.path.join("reports", f"report_{timestamp_str}")
     os.makedirs(report_dir, exist_ok=True)
     
+    # Manage history.json
+    history_file = os.path.join("reports", "history.json")
+    history = []
+    if os.path.exists(history_file):
+        try:
+            with open(history_file, "r") as f:
+                history = json.load(f)
+        except Exception:
+            pass
+            
+    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    history.append({
+        "date": today_str,
+        "timestamp": datetime.datetime.now().isoformat(),
+        "total": len(filtered),
+        "critical": sum(1 for f in filtered if f["severity"] == "CRITICAL"),
+        "high": sum(1 for f in filtered if f["severity"] == "HIGH"),
+        "medium": sum(1 for f in filtered if f["severity"] == "MEDIUM"),
+        "low": sum(1 for f in filtered if f["severity"] == "LOW")
+    })
+    
+    with open(history_file, "w") as f:
+        json.dump(history, f, indent=2)
+    
     base_name = f"audit_{args.target_environment}_{args.severity_filter}"
     
     formats_to_gen = ["html", "csv", "json"] if args.output_format.lower() == "all" else [args.output_format.lower()]
-
     log_info(f"Generating reports: {', '.join(formats_to_gen).upper()}...")
-
     for fmt in formats_to_gen:
         report_path = os.path.join(report_dir, f"{base_name}.{fmt}")
+        latest_path = os.path.join("reports", f"latest.{fmt}")
+        
         if fmt == "html":
-            generate_html_report(filtered, args, report_path)
+            generate_html_report(filtered, args, report_path, history)
+            # Also save a master copy in the root of the reports folder
+            generate_html_report(filtered, args, latest_path, history)
         elif fmt == "json":
             with open(report_path, "w") as f:
                 json.dump(filtered, f, indent=2)
         elif fmt == "csv":
             generate_csv_report(filtered, args, report_path)
-
-    log_info(f"Reports saved to ./{report_dir}/")
+    log_info(f"Reports saved to ./{report_dir}/ and ./reports/latest.html")
     log_info("Relevant remediation playbooks are available in ./remediation_playbooks/")
-
     if args.webhook_url:
         log_info("Sending webhook notification...")
         color = 0x36A64F  # Green (All clear)
@@ -859,8 +966,6 @@ def main():
                 color = 0xFF0000  # Red (Critical/High findings)
             else:
                 color = 0xFFA500  # Orange (Medium/Low findings)
-
-
         # Group findings by domain
         domain_findings = {}
         for f in filtered:
@@ -868,7 +973,6 @@ def main():
             if dom not in domain_findings:
                 domain_findings[dom] = []
             domain_findings[dom].append(f"• **{f['cis_id']}**: {f['title']}\n  └ `[{f['resource']}]`")
-
         fields = [
             {
                 "name": "Total Findings",
@@ -881,7 +985,6 @@ def main():
                 "inline": True
             }
         ]
-
         for dom, f_list in domain_findings.items():
             val = "\n".join(f_list)
             if len(val) > 1024:
@@ -891,7 +994,6 @@ def main():
                 "value": val,
                 "inline": False
             })
-
         embed = {
             "title": f"🚨 Cloud Audit Complete: {args.target_environment}",
             "description": f"The CSPM scan against `{args.compliance_framework.upper()}` benchmarks has finished.",
@@ -901,7 +1003,6 @@ def main():
                 "text": "Cloud Audit Security Pipeline"
             }
         }
-
         fallback_msg = f"🚨 **Cloud Audit Complete ({args.target_environment})**: {len(filtered)} findings detected (>= {args.severity_filter})."
         payload = json.dumps({
             "content": "",  # Empty content so only the embed shows
@@ -920,6 +1021,5 @@ def main():
             urllib.request.urlopen(req, timeout=10)
         except Exception as e:
             log_warn(f"Failed to send webhook notification: {e}")
-
 if __name__ == "__main__":
     main()

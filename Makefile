@@ -33,6 +33,10 @@ audit:
 seed:
 	uv run python scripts/seed_vulnerable_env.py
 
+## seed-history: Generate 1 year of fake historical trend data for the dashboard graph
+seed-history:
+	uv run python scripts/seed_history.py
+
 ## start: Start LocalStack in the background
 start:
 	uv run localstack start -d
