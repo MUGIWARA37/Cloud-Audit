@@ -1,4 +1,4 @@
-*This project has been created as part of the 42 curriculum by hloureda.*
+*This project has been created during a Cloud Security internship at the OCP Group, as part of the ENSA Khouribga curriculum by hloureda.*
 
 # Cloud Audit
 
@@ -141,6 +141,26 @@ The `latest.html` dashboard features:
 - **Line Chart** — total findings trend over the past year
 - **Stacked Bar Chart** — severity breakdown (Critical/High/Medium/Low) over time
 
+## Project Structure
+
+The codebase is organized as a modular Python package:
+
+```text
+Cloud-Audit/
+├── Makefile                # Automation commands (make audit, make seed, make fmt, etc.)
+├── pipeline.py             # Main entry point for the CSPM pipeline
+├── src/                    # Core modules
+│   ├── __init__.py
+│   ├── config.py           # Central configuration & CIS rule definitions
+│   ├── utils.py            # Argument parsing, logging, and validation
+│   ├── scanner.py          # Cloud Custodian execution logic
+│   ├── reporter.py         # HTML (Dark theme) & CSV generation logic
+│   └── notifications.py    # Webhook integration
+├── scripts/                # Utility scripts for seeding mock data
+├── policies/               # Cloud Custodian YAML rule definitions
+└── remediation_playbooks/  # Markdown guides to fix detected issues
+```
+
 ## Blocking Cases Handled
 
 ### API Rate Limiting
@@ -245,17 +265,3 @@ The wrapper script:
 - [Cloud Custodian GitHub](https://github.com/cloud-custodian/cloud-custodian) — source code and policy examples
 - [LocalStack Documentation](https://docs.localstack.cloud/) — local AWS mock environment
 - [AWS CLI Reference](https://docs.aws.amazon.com/cli/latest/) — used in remediation playbooks
-
-### AI Usage
-
-AI tools were used during the development of this project to:
-
-- **Accelerate boilerplate code** — argument parsing, HTML report template, CSV generation
-- **Draft remediation playbooks** — initial CLI commands and Terraform blocks, which were
-  then reviewed against official AWS documentation for accuracy
-- **Debug environment issues** — diagnosing SELinux denials, LocalStack tier limitations,
-  and Custodian policy syntax
-
-All AI-generated code was reviewed, tested against the live LocalStack environment, and
-modified as needed before being committed. The developer takes full responsibility for
-every line of code in this repository.
