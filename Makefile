@@ -16,7 +16,7 @@ audit:
 	uv run python pipeline.py $(ENV) $(FRAMEWORK) $(SEVERITY) $(FORMAT) $(if $(WEBHOOK_URL),--webhook-url $(WEBHOOK_URL))
 
 ## seed: Seed LocalStack with vulnerable mock resources
-seed:
+seed: seed-history
 	uv run python scripts/seed_vulnerable_env.py
 
 ## seed-history: Generate 1 year of fake historical trend data

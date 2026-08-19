@@ -88,17 +88,23 @@ def main() -> None:
         except (json.JSONDecodeError, IOError):
             pass
     today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-    history.append(
-        {
-            "date": today_str,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "total": len(filtered),
-            "critical": sum(1 for f in filtered if f["severity"] == "CRITICAL"),
-            "high": sum(1 for f in filtered if f["severity"] == "HIGH"),
-            "medium": sum(1 for f in filtered if f["severity"] == "MEDIUM"),
-            "low": sum(1 for f in filtered if f["severity"] == "LOW"),
-        },
-    )
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    new_entry = {
+        "date": today_str,
+        "timestamp": now_iso,
+        "total": len(filtered),
+        "critical": sum(1 for f in filtered if f["severity"] == "CRITICAL"),
+        "high": sum(1 for f in filtered if f["severity"] == "HIGH"),
+        "medium": sum(1 for f in filtered if f["severity"] == "MEDIUM"),
+        "low": sum(1 for f in filtered if f["severity"] == "LOW"),
+        "findings": filtered,
+    }
+    
+    existing_idx = next((i for i, e in enumerate(history) if e.get("date") == today_str), None)
+    if existing_idx is not None:
+        history[existing_idx] = new_entry
+    else:
+        history.append(new_entry)
     with open(history_file, "w") as file:
         json.dump(history, file, indent=2)
 
